@@ -1,18 +1,14 @@
 import numpy as np
-import os
-import glob
 import pandas as pd
 import pickle
+import os
 from sklearn.preprocessing import StandardScaler
 from scripts import mvpa_prepping_data as prepping_data
 from scripts import mvpa_building_model as building_model
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import ShuffleSplit
 from sklearn.metrics import roc_auc_score
-from sklearn.svm import SVR, SVC
-from sklearn.pipeline import Pipeline
+from sklearn.svm import SVC
 from sklearn.decomposition import PCA
-from sklearn.model_selection import GroupShuffleSplit, ShuffleSplit, permutation_test_score
+from sklearn.model_selection import GroupShuffleSplit
 
 
 def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  which_train_data = False, kfold = 5, n_components_pca = 0.90, classes = ['N_HYPO', 'HYPO', 'N_HYPER', 'HYPER'], cov_corr = True, binary = False, binary_fct = 'modulation', verbose = True):
@@ -22,8 +18,6 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     This function serves to run a linear SVC on fmri data.
     arguments
     ---------
-
-    save_path : String; path to where results will be saved
 
     data_input : String; Path to fmri activation maps. It will extract the path of all imgs in path and its subfolders that has 'beta*' in name
 
@@ -81,7 +75,6 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     masker, extract_X = prepping_data.extract_signal(data, mask = 'whole-brain-template', standardize = True) # extract_X is a (N obs. x N. voxels) structure
     stand_X = StandardScaler().fit_transform(extract_X.T)
     X_vec = stand_X.T
-    check = np.isnan(X_vec)
 
     # Ordering according to group
     XYgr = pd.concat([pd.DataFrame(X_vec), pd.DataFrame({'files': files, 'Y': Y, 'gr' : gr})], axis = 1) # [[X_vec],[files],[Y],[gr]] of dim [n x m features + 3]
@@ -89,7 +82,7 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     X = XYgr_ordered.iloc[:,:-3].to_numpy() # X part of XYgr
     Y = np.array(XYgr_ordered['Y'])
     gr = np.array(XYgr_ordered['gr'])
-    data = XY_ordered['files'] # 'data' is a list of filenames instead of paths** To  reuse paths, change 'files' to 'path' column of XYgr
+    data = XYgr_ordered['files'] # 'data' is a list of filenames instead of paths** To  reuse paths, change 'files' to 'path' column of XYgr
 
     # Saving test for matlab script
     save_test = False
@@ -135,7 +128,6 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     PC_values = np.arange(pca.n_components_) + 1
 
     # Metrics
-    final_results = dict()
     Y_pred = final_model.predict(X_test)
     final_row_metrics, cm, cr = building_model.compute_metrics_y_pred(Y_test, Y_pred, verbose) # cm : confusion matrix and cr : classification report
 
@@ -154,7 +146,6 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     dict_final_results = dict(y_pred_metrics = df_ypred_metrics, Y_pred = Y_pred, Y_score = final_y_score, roc_auc_ovo = final_roc_auc_ovo, confusion_matrix = cm, classification_report = cr, decision_function = final_decision_func,PCA_var_final = PCA_var,PC_val_final = PC_values)
 
     # Covariance matrix of X_test,Y_test
-    wide_Y_test = building_model.hot_split_Y_test(Y_test,len(classes))
     if cov_corr:
         cov_x = np.cov(X_test.transpose().astype(np.float64))
         cov_y = np.cov(Y_test.transpose().astype(np.float64))
@@ -165,7 +156,7 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
     contrast_counter = 1
     for weights in final_model.coef_: # W is the weight vector
 
-        (masker.inverse_transform(pca.inverse_transform(weights))).to_filename(f"coeffs_whole_brain_{contrast_counter}.nii.gz")
+        (masker.inverse_transform(pca.inverse_transform(weights))).to_filename(os.path.join(save_path, f"coeffs_whole_brain_{contrast_counter}.nii.gz"))
         if cov_corr:
             # correction from Eqn 6 (Haufe et al., 2014)
             A = np.matmul(cov_x, weights)*(1/cov_y) # j'ai enlevé weights.transpose()
@@ -173,29 +164,29 @@ def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  whic
             print(A.shape)
             print(masker.inverse_transform(pca.inverse_transform(A)).shape)
             # reproject to nii
-            (masker.inverse_transform(pca.inverse_transform(A))).to_filename(f"eq6_adj_coeff_whole_brain_{contrast_counter}.nii.gz")
+            (masker.inverse_transform(pca.inverse_transform(A))).to_filename(os.path.join(save_path, f"eq6_adj_coeff_whole_brain_{contrast_counter}.nii.gz"))
         contrast_counter += 1
 
-    with open('final_results.pickle', 'wb') as handle:
+    with open(os.path.join(save_path, 'final_results.pickle'), 'wb') as handle:
         pickle.dump(dict_final_results, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open('final_results.pickle', 'rb') as handle:
-        b = pickle.load(handle)
+    #with open('final_results.pickle', 'rb') as handle:
+    #    b = pickle.load(handle)
 
-    filename_model = "final_model_SVC.pickle"
+    filename_model = os.path.join(save_path, "final_model_SVC.pickle")
     pickle_out = open(filename_model,"wb")
     pickle.dump(final_model, pickle_out)
     pickle_out.close()
 
     if kfold > 0:
-        with open('kfold_results.pickle', 'wb') as handle:
+        with open(os.path.join(save_path, 'kfold_results.pickle'), 'wb') as handle:
             pickle.dump(dict_fold_results, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        with open('kfold_results.pickle', 'rb') as handle:
-            b = pickle.load(handle)
+        #with open('kfold_results.pickle', 'rb') as handle:
+        #    b = pickle.load(handle)
 
-    np.savez_compressed('XY_data_split.npz',df_target = df_target, X_train = X_train, Y_train = Y_train, X_test = X_test, Y_test = Y_test)
+    np.savez_compressed(os.path.join(save_path, 'XY_data_split.npz'),df_target = df_target, X_train = X_train, Y_train = Y_train, X_test = X_test, Y_test = Y_test)
     #np.savez_compressed('cov_matrix.npz', cov_mat=cov_mat)
     main_args = f'kfold = {kfold}, n_components_pca  = {n_components_pca}, sub_data = {sub_data}, which_train_data = {which_train_data}, classes = {classes}, cov_corr = {cov_corr}, binary = {binary}, binary_fct = {binary_fct}'
-    with open('main_args.txt', 'w') as main_args_file:
+    with open(os.path.join(save_path, 'main_args.txt'), 'w') as main_args_file:
         main_args_file.write(''.join(cond_target) + ' / ' + main_args)
 
     if verbose:
