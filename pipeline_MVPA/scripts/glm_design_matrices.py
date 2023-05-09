@@ -176,7 +176,6 @@ def get_subj_data(data_dir, prefix = None):
     #if prefix = None, all the files of the dir will be put in the list
     if prefix == None:
 
-        #Extraction des volumes pour un sujet dans une liste
         ls_volumes_all = os.listdir(data_dir)
 
         #Crée une liste avec seulement les fichiers commencant par sw

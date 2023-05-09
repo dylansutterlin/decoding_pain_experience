@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from scripts import design_matrices as DM
 from scripts import contrasts
 
-def main(root_dir = None, timestamps_path = None, dir_to_save= None, contrast_type = None, parser = True, compute_DM = True):
+def main(root_dir = None, timestamps_path = None, dir_to_save= None, contrast_type = None, parser = True, compute_DM = True, dot_with = 'NPS'):
 
     """
     Arguments

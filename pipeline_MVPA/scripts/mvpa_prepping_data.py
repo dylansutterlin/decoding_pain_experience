@@ -23,7 +23,7 @@ def extract_data(data_input, extract_str = 'beta*', folder_per_participant = Tru
     '''
     path, dirs, files = next(os.walk(data_input))
     #want to return a list of all the nii file from different folders
-    print(path, dirs, files)
+
     data =[]
     gr = []
     group_indx = 1
@@ -103,7 +103,7 @@ def y_transformer(y, func = np.log1p):
     return df_y
 
 
-def extract_signal(data, mask="whole-brain-template", standardize = True):
+def extract_signal(data, mask="whole-brain-template",runs = None, smoothing_fwhm = None, standardize = True):
     """
     Apply a mask to extract the signal from the data and save the mask
     in a html format
@@ -121,8 +121,8 @@ def extract_signal(data, mask="whole-brain-template", standardize = True):
 
     See also NifitMasker documentation
     """
-    masker_all = NiftiMasker(mask_strategy = mask,standardize=standardize, verbose = 1, reports = True)
-    
+    masker_all = NiftiMasker(mask_strategy = mask,standardize=standardize,smoothing_fwhm = smoothing_fwhm, verbose = 0)
+
     masker_gm = masker_all.fit_transform(data)
     print("mean: ", round(masker_gm.mean(),2), "\nstd: ", round(masker_gm.std(),2))
     print("Signal size: ", masker_gm.shape)
@@ -157,7 +157,7 @@ def extract_signal_from_mask(data, mask):
 def encode_classes(data, gr):
 
     #Y data
-    y_colnames = ['filename', 'target', 'condition', 'group']
+    y_colnames = ['filename', 'target', 'conditions', 'run', 'group']
     df_target = pd.DataFrame(columns = y_colnames)
     index = 0
     for file in data:
@@ -170,12 +170,12 @@ def encode_classes(data, gr):
         if 'ANA' in filename:
             if 'N_ANA' in filename:
                 target = 1 #hypo neutral
-                cond = 'N_HYPO'
-
+                cond = 'N_Hypo'
+                run = '1-Hypo'
             else:#Hypo
                 target = 2
-                cond = 'HYPO'
-
+                cond = 'Hypo'
+            run = '1-Hypo'
         else : #hyper
             if 'N_HYPER' in filename:
                 target = 3
@@ -183,14 +183,16 @@ def encode_classes(data, gr):
             else:
                 target = 4
                 cond = 'HYPER'
+            run = 'Hyper'
             #print('attributed : ', target, 'as target and :', cond, 'as condition')
             #print('-----------')
         df_target.loc[index, 'target'] = target
-        df_target.loc[index, 'condition'] = cond
+        df_target.loc[index, 'conditions'] = cond
 
         index += 1
     df_target['group'] = gr
     cond_target = ['1 = N_ANA', '2 = HYPO', '3 = N_HYPER', '4 = HYPER']
+    df_target.loc[index,'run'] = run
 
     return df_target, cond_target
 
@@ -207,8 +209,9 @@ def encode_manip_classes(data, gr):
     '''
 
     #Y data
-    y_colnames = ['filename', 'target', 'condition', 'group']
+    y_colnames = ['filename', 'target', 'conditions','run', 'group']
     df_target = pd.DataFrame(columns = y_colnames)
+
     index = 0
     for file in data:
 
@@ -224,20 +227,22 @@ def encode_manip_classes(data, gr):
 
             else:#Hypo
                 target = 1
-                cond = 'Modulation'
-
+                cond = 'Hypo'
+            run = '1-Hypo'
         else : #hyper
             if 'N_HYPER' in filename:
                 target = 2
                 cond = 'Neutral'
             else:
                 target = 1
-                cond = 'Modulation'
+                cond = 'Hyper'
+            run = '2-Hyper'
             #print('attributed : ', target, 'as target and :', cond, 'as condition')
             #print('-----------')
-        df_target.loc[index, 'target'] = target
-        df_target.loc[index, 'condition'] = cond
 
+        df_target.loc[index, 'target'] = target
+        df_target.loc[index, 'conditions'] = cond
+        df_target.loc[index,'run'] = run
         index += 1
     df_target['group'] = gr
     cond_target = ['1 = HYPO/HYPER', '2 = Neutrals']
@@ -248,7 +253,7 @@ def encode_manip_classes(data, gr):
 def encode_runs_as_classes(data, gr):
 
     #Y data
-    y_colnames = ['filename', 'target', 'condition', 'group']
+    y_colnames = ['filename', 'target', 'conditions','run', 'group']
     df_target = pd.DataFrame(columns = y_colnames)
     index = 0
     for file in data:
@@ -265,20 +270,19 @@ def encode_runs_as_classes(data, gr):
 
             else:#Hypo
                 target = 1
-                cond = 'Modulation'
-
+                cond = 'hypo'
+            run = '1-Hypo'
         else : #hyper
             if 'N_HYPER' in filename:
                 target = 2
                 cond = 'Neutral'
             else:
                 target = 2
-                cond = 'Modulation'
-            #print('attributed : ', target, 'as target and :', cond, 'as condition')
-            #print('-----------')
+                cond = 'hyper'
+            run = '2-Hyper'
         df_target.loc[index, 'target'] = target
-        df_target.loc[index, 'condition'] = cond
-
+        df_target.loc[index, 'conditions'] = cond
+        df_target.loc[index,'run'] = run
         index += 1
     df_target['group'] = gr
     cond_target = ['1 = HYPO_run', '2 = HYPER_run']
