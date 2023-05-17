@@ -50,6 +50,13 @@ def glm_contrast_1event(design_matrices,all_runs_fmri_img, dir_to_save, subj_nam
                                hrf_model='spm',
                                drift_model='cosine',
                                high_pass= 0.00233645)
+    fmri_glm = FirstLevelModel(t_r=3,
+                               noise_model='ar1',
+                               standardize=False,
+                               slice_time_ref = 0.5,
+                               hrf_model='spm',
+                               drift_model='cosine',
+                               high_pass= 0.00233645)
 
     fmri_glm = fmri_glm.fit(all_runs_fmri_img, design_matrices = design_matrices)
 
@@ -91,28 +98,28 @@ def glm_contrast_1event(design_matrices,all_runs_fmri_img, dir_to_save, subj_nam
                 print('==============')
                 print('COMPUTING CONTRAST')
                 print('With the CONTRAST VECTOR : {} '.format(contrast_vector))
-                beta_map = fmri_glm.compute_contrast(
+                stat_map = fmri_glm.compute_contrast(
                      contrast_vector,stat_type = 't', output_type=output_type)#compute the contrasts with contrast vector
 
                 #---------Plot option----------
                 #plotting.plot_stat_map(
-                #    beta_map, threshold=3.0, display_mode='z',
+                #    stat_map, threshold=3.0, display_mode='z',
                 #    cut_coords=3, black_bg=True, title=actual_key_name)
                 #plotting.show()
 
                 #-------SAVING OUTPUT-------
                 if run_name == None:#control if a run_name string has been provided to include in the name of the file to save
-                    name_to_save = 'beta_map_' + subj_name + '_' + actual_key_name
+                    name_to_save = 'stat_map_' + subj_name + '_' + actual_key_name
                     contrast_path = os.path.join(subj_result_path, name_to_save)
-                    nib.save(beta_map, contrast_path)
+                    nib.save(stat_map, contrast_path)
 
                 if run_name != None:
-                    name_to_save = 'beta_map_' + subj_name + '_' + run_name + actual_key_name
+                    name_to_save = 'stat_map_' + subj_name + '_' + run_name + actual_key_name
                     contrast_path = os.path.join(subj_result_path, name_to_save)
-                    nib.save(beta_map, contrast_path)
-                print('Have saved beta_map as a : {} , having shape : {} , under name : {}'.format(type(beta_map),beta_map.shape, name_to_save))
+                    nib.save(stat_map, contrast_path)
+                print('Have saved stat_map as a : {} , having shape : {} , under name : {}'.format(type(stat_map),stat_map.shape, name_to_save))
         indx +=1
-    return beta_map,contrast_path
+    return stat_map,contrast_path
 
 #--------------------------
 def glm_contrast_N_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj_name, run_name = None, output_type = 'effect_size'):
@@ -185,11 +192,11 @@ def glm_contrast_N_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj_n
     print('==============')
     print('COMPUTING CONTRAST')
     print('With the CONTRAST VECTOR : {} '.format(contrast_vector))
-    beta_map = fmri_glm.compute_contrast(contrast_vector, stat_type = 't', output_type= output_type)#compute the contrasts with contrast vector
+    stat_map = fmri_glm.compute_contrast(contrast_vector, stat_type = 't', output_type= output_type)#compute the contrasts with contrast vector
     print('has done contrast')
      #---------Plot option----------
     #plotting.plot_stat_map(
-    #    beta_map, threshold=3.0, display_mode='z',
+    #    stat_map, threshold=3.0, display_mode='z',
     #    cut_coords=3, black_bg=True, title=actual_key_name)
     #plotting.show()
 
@@ -202,20 +209,20 @@ def glm_contrast_N_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj_n
         pass
 
     if run_name == None:#control if a run_name string has been provided to include in the name of the file to save
-        name_to_save = 'beta_map_' + subj_name  + '_Neut_shocks'
+        name_to_save = 'stat_map_' + subj_name  + '_Neut_shocks'
         contrast_path = os.path.join(subj_result_path, name_to_save)
-        nib.save(beta_map, contrast_path)
+        nib.save(stat_map, contrast_path)
 
     if run_name != None:
-        name_to_save = 'beta_map_' + subj_name + '_' + run_name + '_Neut_shocks'
+        name_to_save = 'stat_map_' + subj_name + '_' + run_name + '_Neut_shocks'
         contrast_path = os.path.join(subj_result_path, name_to_save)
-        nib.save(beta_map, contrast_path)
-    print('Have saved beta_map as a : {} , having shape : {} , under name : {}'.format(type(beta_map),beta_map.shape, name_to_save))
+        nib.save(stat_map, contrast_path)
+    print('Have saved stat_map as a : {} , having shape : {} , under name : {}'.format(type(stat_map),stat_map.shape, name_to_save))
 
-    return beta_map,contrast_path
+    return stat_map,contrast_path
 
 #-----------------------------
-def glm_contrast_all_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj_name, run_name = None, output_type = 'effect_size'):
+def glm_contrast_all_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj_name, run_name = None, stat_type = 't', output_type = 'effect_size'):
     """
     #====================
     #Function that takes a design matrix, a path to save, a subject name, a run_name name and a 4D nii file to conpute contrast
@@ -235,76 +242,68 @@ def glm_contrast_all_shocks(design_matrices,all_runs_fmri_img, dir_to_save, subj
     """
     all_runs_fmri_img_name = subj_name + '_concat_fmri.nii'
     #-------Model--------
-    print('==============')
-    print('COMPUTING GLM for subject ' + subj_name)
-    fmri_glm = FirstLevelModel(t_r=3, #ok
-                               noise_model='ar1',
-                               standardize=False,
-                               slice_time_ref = 0.5,
-                               hrf_model='spm',
-                               drift_model='cosine',
-                               high_pass=.00233645)
-    fmri_glm = fmri_glm.fit(all_runs_fmri_img, design_matrices = design_matrices)
+
+    fmri_glm = FirstLevelModel().fit(all_runs_fmri_img, design_matrices = design_matrices)
+    print(fmri_glm)
+    if design_matrices[0].shape != design_matrices[1].shape:
+        print('WARNING, Design matrices don\'t have the same size, please see contrasts')
     #==============
-    identity_matrix = np.eye((design_matrices.shape)[1],(design_matrices.shape)[1])
-    null_matrix = np.zeros(design_matrices.shape)
-    #print(null_matrix.shape), print('NULL MATRIX')
-
+    identity_matrix = np.eye((design_matrices[0].shape)[1],(design_matrices[0].shape)[1])
+    null_matrix = np.zeros(design_matrices[0].shape)
     none_contrasts = dict([(column, null_matrix[i])
-      for i, column in enumerate(design_matrices.columns)])
-    contrast_vector = np.zeros(((design_matrices[0].shape)[1]))#ones will be added to this vector as we specify which regressor we want to contrast
+      for i, column in enumerate(design_matrices[0].columns)])
+    contrast_vector = np.zeros(((design_matrices[0].shape)[1])) # ones will be added to this vector as we specify which regressor we want to contrast
 
-    #list of all the regressors/keys to keep track of the regressors we've added to contrast
+    # list of all the regressors/keys to keep track of the regressors we've added to contrast
     ls_keys = []
     key_list = list(none_contrasts)
-    indx = 0
-    for keys in none_contrasts:
 
+    for indx, keys in enumerate(none_contrasts):
         #if the key is str, in order to exclude the drifts and other parameters
         if type(keys) is str:
-
             string_interest = 'shock' #In this case every key that has the string 'shock' will be attributed a 1 in that column
-
             if string_interest in keys:#if the keys contains the word 'shock'
                 actual_key_name = key_list[indx]
                 ls_keys.append(keys)#extract the actual regressor/key name with the index position
                 contrast_vector += identity_matrix[:, indx] #sum of the contrast vector with the identity matrix column to stack the ones
                                                             #in the contrast vector for all regressors of interest
-        indx += 1
-    print(ls_keys, ' : All the keys added to contrast')
+
     #--------computing contrast---------
-    print('==============')
-    print('COMPUTING CONTRAST')
-    print('With the CONTRAST VECTOR : {} '.format(contrast_vector))
-    beta_map = fmri_glm.compute_contrast(
-         contrast_vector,  stat_type = 't',output_type= output_type)#compute the contrasts with contrast vector
+    stat_map = fmri_glm.compute_contrast(
+         contrast_vector,  stat_type = stat_type, output_type= output_type)#compute the contrasts with contrast vector
 
-     #---------Plot option----------
-    #plotting.plot_stat_map(
-    #    beta_map, threshold=3.0, display_mode='z',
-    #    cut_coords=3, black_bg=True, title=actual_key_name)
-    #plotting.show()
+    #---------Plot option----------
+    plotting.plot_stat_map(
+        stat_map, threshold=3.0, display_mode='z',
+        cut_coords=3, black_bg=True, title=actual_key_name)
+    plotting.show()
 
-     #-------SAVING OUTPUT-------
+    #-------SAVING OUTPUT-------
     subj_result_path = os.path.join(dir_to_save,subj_name)
-
     if os.path.exists(subj_result_path) is False:
-                   os.mkdir(subj_result_path)
+        os.mkdir(subj_result_path)
     else :
         pass
 
     if run_name == None:#control if a run_name string has been provided to include in the name of the file to save
-        name_to_save = 'beta_map_' + subj_name  + '_all_shocks'
+        name_to_save = stat_type + '_map_' + subj_name  + '_all_shocks'
         contrast_path = os.path.join(subj_result_path, name_to_save)
-        nib.save(beta_map, contrast_path)
+        nib.save(stat_map, contrast_path)
 
     if run_name != None:
-        name_to_save = 'beta_map_' + subj_name + '_' + run_name + '_all_shocks'
+        name_to_save = stat_type + '_map_' + subj_name + '_' + run_name + '_all_shocks'
         contrast_path = os.path.join(subj_result_path, name_to_save)
-        nib.save(beta_map, contrast_path)
-    print('Have saved beta_map as a : {} , having shape : {} , under name : {}'.format(type(beta_map),beta_map.shape, name_to_save))
+        nib.save(stat_map, contrast_path)
 
-    return beta_map,contrast_path
+
+    print('==============')
+    print('COMPUTING GLM for subject ' + subj_name)
+    print('COMPUTING CONTRAST')
+    print(ls_keys, ' : All the keys added to contrast')
+    print('With the CONTRAST VECTOR : {} '.format(contrast_vector))
+    print('Have saved stat_map as a : {} , having shape : {} , under name : {}'.format(type(stat_map),stat_map.shape, name_to_save))
+
+    return stat_map,contrast_path
 
 
 def change_events_name(matrix,str_to_keep):
