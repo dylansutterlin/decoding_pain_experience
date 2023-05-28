@@ -1,23 +1,41 @@
-
 import numpy as np
 import os
 import pandas as pd
 import glob
 import nibabel as nib
 from nilearn.plotting import plot_design_matrix
+from nilearn.image import concat_imgs, mean_img
+from nilearn.maskers import NiftiMasker
 import matplotlib.pyplot as plt
 from scripts import glm_design_matrices as glm
-from scripts import glm_contrasts as stats
+from scripts import glm_manip_data as manip_data
+from nilearn.glm.first_level import FirstLevelModel
 
-def main(data_dir = None, timestamps_path = None, dir_to_save= None, contrast_type = None, parser = True, compute_DM = True, dot_with = 'NPS', max_iter = None):
+# from scripts import glm_contrasts as stats
 
+
+def main(
+    data_dir,
+    run_names=None,
+    events_dir=None,
+    dir_to_save=None,
+    save_design_matrix=True,
+    contrast_type=None,
+    parser=True,
+    compute_DM=True,
+    dot_with="NPS",
+    max_iter=None,
+    verbose=True,
+):
     """
     Arguments
     --------
 
-    data_dir : String, Default = None
+    data_dir : String, path to the root directory to all the subject's fmri volumes. This script is built assuming that root dir is a dir with a folder for each participant
         directory to all the subject's fmri volumes. This script is built assuming that root dir is a dir with a folder for each participant.
-    timestamps_path : Path to all the timestamps in a folder. The script identify which timestamps to choose based on its name. Can be .mat or .csv
+
+
+    events_dir : Path to all the timestamps in a folder. The script identify which timestamps to choose based on its name. Can be .mat or .csv
     dir_to_save : Directory to save the statistical contrast maps. It will only be used if contrast_type is not 'None'.
     contrast_type : Type of contrast to compute. Choices=['all_shocks','each_shocks','neut_shocks', 'suggestions']. By default None.
     parser : True by default. If False, parser.args will be overlooked and user will be able to manually provide the necessary arguments while calling main().
@@ -32,91 +50,186 @@ def main(data_dir = None, timestamps_path = None, dir_to_save= None, contrast_ty
 
     """
 
-    #--------Parser--------
-    #Argument parser
+    # --------Parser--------
+    # Argument parser
     if __name__ == "__main__":
         from argparse import ArgumentParser
 
         parser = ArgumentParser()
-        parser.add_argument("--data_dir", type=str) #dir to the subjects' files containing the fmri data
-        parser.add_argument("--dir_to_save", type=str) #path to save the output
-        parser.add_argument("--timestamps_path_root", type=str) #path to the timestamps files
+        parser.add_argument("--data_dir", type=str)
+        parser.add_argument("--dir_to_save", type=str)
+        parser.add_argument("--events_dir", type=str)
         parser.add_argument("--many_runs", type=str)
-        parser.add_argument('--contrast_type', type=str, choices=['all_shocks','each_shocks','suggestions'], default='all_shocks')
+        parser.add_argument(
+            "--contrast_type",
+            type=str,
+            choices=["all_shocks", "each_shocks", "suggestions"],
+            default="all_shocks",
+        )
         args = parser.parse_args()
 
-    # Setting paths to subjects' data
-    if data_dir != None: # if no root directory is provided, it's expected to receive a path to design matrices as 'compute_DM'
-        ls_subj_name = [subject for subject in os.listdir(data_dir)]
-        ls_subj_path  = glob.glob(os.path.join(data_dir,'*'))
+    # --------Variables--------
+    if run_names is None:
+        run_names = ["run1"]
     else:
-        ls_subj_name = [subject for subject in os.listdir(compute_DM)]# Assuming compute DM is a path with the same structure as data_dir
-        ls_subj_path  = glob.glob(os.path.join(compute_DM,'*'))
-    contrast_paths = []
+        run_names = ["Analgesia", "Hyperalgesia"]
+    if events_dir != None:
+        data = manip_data.load_data(data_dir, events_dir)
+    results = dict()
+    # else:
+    ##design_matrices, timeseries = load_DM_series()
 
-    #---creating directory---
-    if contrast_type != None: #make a result directory for the contrasts
-        results_path = os.path.join(dir_to_save,contrast_type) #creating a root dir to save all the contrast
+    # ---Creating saving directory---
+    if contrast_type != None:
+        results_path = os.path.join(dir_to_save, "contrast_" + contrast_type)
         if os.path.exists(results_path) is False:
             os.mkdir(results_path)
+    if save_design_matrix == True:
+        save_design_matrix = os.path.join(dir_to_save, "design_matrices_TxT")
+        if os.path.exists(save_design_matrix) is False:
+            os.mkdir(save_design_matrix)
 
-    # Main loop
-    for subj_path in ls_subj_path:
-        subj_name = os.path.basename(os.path.normpath(subj_path))
-        print('At : ' + subj_name)
+    # First level model
+    for i, run in enumerate(range(0, len(run_names)), start=0):
+        # --GLM parameters--
+        masker = NiftiMasker(standardize="psc", smoothing_fwhm=6)
+        fmri_glm = FirstLevelModel(
+            t_r=3,
+            noise_model="ar1",
+            standardize=False,
+            slice_time_ref=0.5,
+            hrf_model="spm",
+            drift_model="cosine",
+            high_pass=0.00233645,
+        )
 
-        # Get design matrix and timeseries
-        if compute_DM != True: # Will load the DM and corresponding timeseries
-            paths_design_matrices = glob.glob(os.path.join(compute_DM, subj_name,'DM*csv'))# Assumes that the design matrix file has DM in its filename
-            #design_matrices = DM.load_pkl_to_pd(paths_design_matrices)
-            design_matrices = pd.read_csv(paths_design_matrices[0],index_col = [0])
-            fmri_time_series = glob.glob(os.path.join(compute_DM, subj_name, '*fmri*'))#assuming that the 4D timeseries contains 'fmri' in its name
-            conditions = 'hyper_hypo'
+        # ---!! always starting with Analgeria --> adapt timestamps and confounds. events
 
-        else: # Will compute the DM
-            glm.check_if_empty(data_dir)
-            save_DM = os.path.join(dir_to_save,'DM_timeseries')
-            if os.path.exists(save_DM) is False:
+        fmri_timeseries = data.get(
+            "func_{}".format(run_names[i][:3])
+        )  # func_Ana / func_Hyper
+        breakpoint()
+        events = data.events.get(run_names[i])
+        confounds = manip_data.split_conf_matrix(
+            data.all_confounds[i], len([fmri_timeseries[i]]), run_names[i]
+        )
+        results[run_names[i]] = {
+            "timeseries": fmri_timeseries,
+            "events": events,
+            "confounds": confounds,
+        }
+
+        for idx, sub in enumerate(data.subjects):
+            # -- GLM fit  for each subject --
+            X = masker.fit_transform(fmri_timeseries[idx])  # should add confound ?
+            fmri_glm = fmri_glm.fit(
+                masker.inverse_transform(X),
+                events=events[idx],
+                confounds=confounds[idx],
+            )
+            design_matrix = fmri_glm.design_matrices_[0]
+            results[run_names[i]][sub] = {
+                "design_matrix": design_matrix,
+                "glm": fmri_glm,
+            }
+
+            # --Quality check--
+            mean_img = X
+            plot_glass_brain(mean_img, title="mean_img_{}".format(run_names[i]))
+            plotting.show()
+            from nilearn.plotting import plot_design_matrix
+
+            plot_design_matrix(design_matrix)
+            import matplotlib.pyplot as plt
+
+            plt.show()
+
+            breakpoint()
+
+            # -- save design matrix --
+            if save_design_matrix != False:
+                if not os.path.exists(os.path.join(save_design_matrix, sub)):
+                    os.makedirs(os.path.join(save_design_matrix, sub))
+                design_matrix.to_csv(
+                    os.path.join(
+                        save_design_matrix,
+                        sub,
+                        "design_matrix_{}.csv".format(run_names[i]),
+                    )
+                )
+                # save.plot_design_matrix(design_matrix)
+
+            contrast_type = None
+            # -- compute contrast --
+            if contrast_type != None:
+                # -- compute contrast --
+                if contrast_type == "all_shocks":
+                    contrast_matrix = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                elif contrast_type == "each_shocks":
+                    contrast_matrix = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                elif contrast_type == "suggestions":
+                    contrast_matrix = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                contrast = fmri_glm.compute_contrast(
+                    contrast_matrix, output_type="z_score"
+                )
+                # -- save contrast maps --
+                if os.path.exists(results_path) is False:
+                    os.mkdir(results_path)
+                save_path = os.path.join(results_path, sub)
+                if os.path.exists(save_path) is False:
+                    os.mkdir(save_path)
+                contrast.to_filename(
+                    os.path.join(save_path, "contrast_{}.nii.gz".format(run_names[i]))
+                )
+
+            # -- save contrast maps --
+            glm.check_if_empty(results_path)
+            save_DM = os.path.join(dir_to_save, "DM_timeseries")
+            if os.path.exists(results_path) is False:
                 os.mkdir(save_DM)
-            design_matrices, fmri_time_series, conditions = glm.compute_DM(subj_path, timestamps_path, 3, save = save_DM) #3 is the TR
+            design_matrix, fmri_time_series, conditions = glm.compute_DM(
+                subj_path, events_dir, 3, save_to=save_DM
+            )  # 3 is the TR
+            paths_design_matrices = glob.glob(
+                os.path.join(compute_DM, subj_name, "DM*csv")
+            )  # Assumes that the design matrix file has DM in its filename
+            # design_matrices = DM.load_pkl_to_pd(paths_design_matrices)
+            design_matrices = pd.read_csv(paths_design_matrices[0], index_col=[0])
+            fmri_time_series = glob.glob(
+                os.path.join(compute_DM, subj_name, "*fmri*")
+            )  # assuming that the 4D timeseries contains 'fmri' in its name
+            conditions = "hyper_hypo"
 
 
-        #-----Contrast-----
-        if contrast_type == 'each_shocks':
-            beta_map, contrast_path = stats.glm_contrast_1event(design_matrices,
-             fmri_time_series, results_path,subj_name, run_name = conditions)
-        elif contrast_type == 'neut_shocks':
-            beta_map, contrast_path = stats.glm_contrast_N_shocks(design_matrices,
-             fmri_time_series, results_path,subj_name, run_name = conditions)
-        elif contrast_type == 'suggestions':
-            pass#***in developpement***
-        elif contrast_type == 'all_shocks': #default = all_shocks
-            beta_map, contrast_path = stats.glm_contrast_all_shocks(design_matrices,
-             fmri_time_series, results_path, subj_name, run_name = conditions)
+"""
         else:
-            print('WARNING : skipping contrast')
+            print("WARNING : skipping contrast")
+            
+        if verbose:
+            print("Run  : {} : ".format(run_names[i])
 
-        if contrast_type != None : #keep track of the contrasts' paths to save them
+        if contrast_type != None:  # keep track of the contrasts' paths to save them
             contrast_paths.append(contrast_path)
-        print('contrast_paths lenght : ', len(contrast_paths))
 
+    # Second level analysis
 
-    #Second level analysis
+"""
+# Local
+data = r"E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\Nii_test"
+timestamps_root_path = r"E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\SPM_multiple_condition_files_TxT"
+# compute_DM = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results\results_GLM\SPM_DM_timeseries'
+dir_to_save = r"C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results\results_GLM\test_res_GLM"
+# server
+# data = r'/home/p1226014/projects/def-rainvilp/p1226014/data/desmarteaux2021/Nii'
+# timestamps_root_path = r'/home/p1226014/projects/def-rainvilp/p1226014/data/desmarteaux2021/All_run_timestamps'
+# dir_to_save = r'/home/p1226014/projects/def-rainvilp/p1226014/pain_decoding/results/glm/py_all_shocks'
 
-#main path to data, change according to environment
-#data_dir = r'E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\Nii_test'
-#timestamps_root_path = r'E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\SPM_multiple_condition_files_TxT'
-#dir_to_save = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results_GLM\SPM_DM_single_event_csv'
-#compute_DM = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results_GLM\SPM_DM_single_event_all_runs'
-
-#elm
-data = r'E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\Nii_test'
-#dir_to_save = r'/data/rainville/dylan_projet_ivado_decodage/results_GLM/'
-#compute_DM = r'/data/rainville/dylan_projet_ivado_decodage/results_GLM/SPM_DM_timeseries'
-
-timestamps_root_path = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\H22\PSY3008\times_stamps'
-timestamps_root_path = r'E:\Users\Dylan\Desktop\UdeM_H22\E_PSY3008\data_desmartaux\SPM_multiple_condition_files_TxT'
-compute_DM = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results\results_GLM\SPM_DM_timeseries'
-dir_to_save = r'C:\Users\Dylan\Desktop\UM_Bsc_neurocog\E22\Projet_Ivado_rainvillelab\results\glm_'
-main(data_dir = data, dir_to_save = dir_to_save,timestamps_path = timestamps_root_path, compute_DM = True, contrast_type = 'all_shocks', max_iter = None)
-
+main(
+    data_dir=data,
+    dir_to_save=dir_to_save,
+    events_dir=timestamps_root_path,
+    run_names=["Analgesia", "Hyperalgesia"],
+    compute_DM=True,
+    contrast_type="all_shocks",
+    max_iter=None,
+)

@@ -190,7 +190,7 @@ def dot(path_to_img, path_output, to_dot_with = 'nps', dot_id = None, resample_t
         else:
             df_res.to_csv(os.path.join(path_output,f'results_{resamp}_{to_dot_with}_{dot_id}.csv'))
 
-    return dot_array,subj_array,
+    return dot_array, subj_array
 
 
 ##Arguments of the function

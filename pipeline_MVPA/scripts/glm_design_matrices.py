@@ -8,7 +8,7 @@ import pickle
 from nilearn.glm.first_level import make_first_level_design_matrix
 from nilearn.image import concat_imgs, mean_img
 
-def compute_DM(subj_path,timestamps_path,tr, save = None, runs = True, verbose = True):
+def compute_DM(subj_path, timestamps_path,tr, file_str = 'sw*', save_to = None, runs = True, verbose = True):
 
     """
     Arguments
@@ -16,6 +16,8 @@ def compute_DM(subj_path,timestamps_path,tr, save = None, runs = True, verbose =
     subj_path : Path to folders where the functionnal files are located
     timestamps_path : path to all the timestamps
     tr : In seconds
+    file_str : str
+                str used to extract fmri data in folder. Use '*' if all files in folder are to be used
     runs : True by default. If False, the code needs to be adapted to a single run by changing the «str_analgesia ='Analgesia'»
     save : None by default, if not None, it's expected that a path to the location to save in provided. Then an inside folder will be created to save DM and timeseries
 
@@ -26,81 +28,75 @@ def compute_DM(subj_path,timestamps_path,tr, save = None, runs = True, verbose =
     """
 
     subj_name = os.path.basename(os.path.normpath(subj_path))#extract last part of subj_path to get subject's name
-
     # Movement regressor file
     mvmnt_reg_path = glob.glob(os.path.join(subj_path, '*nuisreg*'))[0]
     df_mvmnt_reg_full = pd.read_csv(mvmnt_reg_path, sep= '\s+', header=None)# full because we'll split it later according to condition
-    print(df_mvmnt_reg_full)
-    #--------------
-    # File names in 'subj_path' that contains the fMRI volumes of each runs.
+
+    # --File names in 'subj_path' that contains the fMRI volumes of each runs--
     str_analgesia ='Analgesia'
     str_hyper = 'Hyperalgesia'
 
     if runs:
+        runs_fmri_imgs = []
+        runs_timestamps =[]
+        runs_confounds = []
         design_matrices = []
-        all_fmri_timeseries = []
-        conditions_ls = []
-        DM_names = []
-
-        # In that loop, a Timestamps,a DM name, a movement regressors dataframe, a DM and statistical maps will be generated and saved
         cond_ls = [i for i in os.listdir(subj_path) if str_analgesia in i or str_hyper in i ]
-        cond_ls.sort() # e.g. [cond1, cond2]
+        cond_ls.sort()
 
+        # --iterates over runs to stack volumes, timestamps, confounds... --
         for condition_file in cond_ls: # Controls for each runs
+            condition = condition_file[3:] # *initial folder name has '00-' before condition name, hence 3 characters
 
             #-------Extracting fMRI volumes-------
             run_path = os.path.join(subj_path,condition_file) # path to the data such as : /subj_01/02-Analgesia/<all nii files>
-            subj_volumes= glob.glob(os.path.join(subj_path,condition_file,'sw*')) # extracting all the nii files that start with sw
-
-            if verbose:
-                print('=========================')
-                print('{} NII files in condition folder : {} for subject {}'.format(len(subj_volumes),condition_file, subj_name))
-                print('lenght of movement regesssor df : {}'.format(len(df_mvmnt_reg_full)))
+            subj_volumes = glob.glob(os.path.join(subj_path,condition_file, file_str)) # extracting all the nii files that start with sw
+            runs_fmri_imgs.append(subj_volumes)
 
             #-------Extracting timestamps--------
-            timestamps = get_timestamps(condition_file, subj_name, timestamps_path, return_df =True).sort_values(by=['onset'])
-
-            #----condition and design matrix name-----
-            condition = condition_file[3:]
-            DM_name = 'DM_' + condition_file[3:] + '_' + subj_name + '.pkl'
+            timestamps = get_timestamps(condition, subj_name, timestamps_path, return_df =True).sort_values(by=['onset'])
+            runs_timestamps.append([timestamps])
 
             #-------movement regressors--------
             if condition == 'Analgesia':
                  df_mvmnt_reg = split_reg_upper(df_mvmnt_reg_full,len(subj_volumes))
             elif condition == 'Hyperalgesia':
                 df_mvmnt_reg = split_reg_lower(df_mvmnt_reg_full,len(subj_volumes)) #splitting either the first half or lower half of the mvmnt regressor df according to condition (analg/hyper)
+            runs_confounds.append(df_mvmnt_reg)
 
-            #-------compute DM and extract fmri timeseries-------
-            design_matrix, fmri_time_series = create_DM(subj_volumes, timestamps, DM_name, df_mvmnt_reg, subj_name, tr)
+        # --Concatenate fmri imgs, timestamps and confunds for all runs to compute GLM--
+        fmri_imgs = concat_imgs(runs_fmri_imgs)
+        print('fmri_imgs shapes', fmri_imgs.shape)
 
-            #-------append--------
-            design_matrices.append(pd.DataFrame(design_matrix))
-            all_fmri_timeseries.append(fmri_time_series)
-            conditions_ls.append(condition)
-            DM_names.append(DM_name)
+        # --Adjust timestamps from different runs--
+        timestamps = runs_timestamps[0] # starts with the 1st df to ajust timing in other dfs
+        for i, df in enumerate(runs_timestamps[1:], start = 1): # starts at the 2d df
+            max_time = timestamps['onset'].max()
+            # Modifies the ongoing timestamps with adjusted time
+            df['onset'] = df['onset'].apply(lambda x : x + max_time)
+            timestamps = pd.concat([timestamps,df])
+
+        # --Confounds--
+        confounds = pd.concat([ele for ele in runs_confounds])
+
+        conditions = '_'.join([str(n[3:]) for n in cond_ls])
+        DM_name = 'DM_' + subj_name + conditions + '.pkl'
+        design_matrix = create_DM(fmri_imgs, timestamps, DM_name, confounds, subj_name, tr)
 
         #-----Save-----
-        if save != None:
-            subj_path_save = os.path.join(save,subj_name)
-            if os.path.exists(subj_path_save) is False: #make the subj_path_to_save
-                    os.mkdir(subj_path_save)
+        if save_to != None:
+            if os.path.exists(os.path.join(save_to, subj_name)) is False: #make the subj_path_to_save
+                    os.mkdir(os.path.join(save_to, subj_name))
             else :
                 pass
+            design_matrix.to_pickle(os.path.join(save_to, subj_name, DM_name))
+            fmri_img_name = subj_name + '_fmri_time_series.nii'
+            nib.save(fmri_imgs, os.path.join(save_to, subj_name ,fmri_img_name))
 
-            for i in range(len(design_matrices)): #will save all the element in the design matrix, timeseries and conditions lists
-                design_matrix = design_matrices[i]
-                #design_matrix.to_csv(os.path.join(subj_path_save,DM_names[i]), index = False)
-                #np.save(os.path.join(subj_path_save,DM_names[i]),design_matrix)
-                design_matrix.to_pickle(os.path.join(subj_path_save,DM_names[i]))
-                fmri_time_series = all_fmri_timeseries[i]
-                fmri_img_name = subj_name + '_' + conditions_ls[i] + '_fmri_time_series.nii'
-                nib.save(fmri_time_series, os.path.join(subj_path_save,fmri_img_name))
-
-    conditions = '_'.join([str(n) for n in conditions_ls])
-    return  design_matrices, all_fmri_timeseries, conditions
+    return  design_matrix, fmri_imgs, conditions
 
 
-def create_DM(subject_data, timestamps, DM_name, df_mvmnt_reg, subj_name, tr, save = None, verbose = True):
+def create_DM(fmri_imgs, timestamps, DM_name, confounds, subj_name, tr, save = None, verbose = False):
 
     """
     Description
@@ -109,19 +105,14 @@ def create_DM(subject_data, timestamps, DM_name, df_mvmnt_reg, subj_name, tr, sa
     It returns a pandas design matrix and a 4D time series of the subject nii data.
     """
 
-    fmri_time_series = concat_imgs(subject_data) # Extraction of subject'volumes (4D nii file)
     # TIMESTAMPS
-    if type(timestamps) is str:
+    if type(timestamps) is str: # e.i. if a path is provided instead of a df
         timestamps = pd.read_excel(timestamps, header=None)
-        #formatage des type des entrées et insertion de titres
         timestamps = pd.DataFrame.transpose(events)
         timestamps.rename(columns = {0:'onset', 1:'duration', 2:'trial_type'}, inplace = True)
 
-    timestamps['onset'] = timestamps['onset'].astype(np.float64)
-    timestamps['duration'] = timestamps['duration'].astype(np.float64)
-    timestamps['trial_type'] = timestamps['trial_type'].astype(np.str)
 
-    n_scans = len(subject_data)
+    n_scans = fmri_imgs.shape[3] # pos '3' as shape is 4 dim
     #frame_times = np.arange(n_scans) * tr
     frametimes = np.linspace(0, (n_scans - 1) * tr, n_scans)
     design_matrix = make_first_level_design_matrix(
@@ -130,14 +121,14 @@ def create_DM(subject_data, timestamps, DM_name, df_mvmnt_reg, subj_name, tr, sa
                 hrf_model='spm',
                 drift_model='cosine',
                 high_pass= 0.00233645,
-                add_regs = df_mvmnt_reg) #array of shape(n_frames, n_add_reg)
+                add_regs = confounds) #array of shape(n_frames, n_add_reg)
 
     if verbose:
     #--------Prints for info--------
         print('COMPUTING design matrix under name : ' + DM_name)
         print('SHAPE of TIMESPTAMPS is {0}'.format(timestamps.shape))
-        print('SHAPE of MOVEMENT REGRESSORS: {} '.format(df_mvmnt_reg.shape))
-        print('SHAPE OF fMRI TIMESERIES : {} '.format(fmri_time_series.shape))
+        print('SHAPE of MOVEMENT REGRESSORS: {} '.format(confounds.shape))
+        print('SHAPE OF fMRI TIMESERIES : {} '.format(fmri_imgs.shape))
         print('SHAPE OF DESIGN MATRIX : {} '.format(design_matrix.shape))
 
     #--------plot option--------
@@ -146,7 +137,7 @@ def create_DM(subject_data, timestamps, DM_name, df_mvmnt_reg, subj_name, tr, sa
         import matplotlib.pyplot as plt
         #plt.show()
 
-    return design_matrix, fmri_time_series
+    return design_matrix
 
 ############################################
 #TO FIX with module
@@ -306,6 +297,10 @@ def get_timestamps(condition_file, subj_name, timestamps_path_root, return_df=No
 
         df_timestamps = pd.concat([pd.DataFrame(timestamps['onsets']),pd.DataFrame(timestamps['durations']),pd.DataFrame(timestamps['names'])], axis = 1)
         df_timestamps.columns = ['onset', 'duration','trial_type']
+
+        df_timestamps['onset'] = df_timestamps['onset'].astype(np.float64)
+        df_timestamps['duration'] = df_timestamps['duration'].astype(np.float64)
+        df_timestamps['trial_type'] = df_timestamps['trial_type'].astype(np.str)
 
         return df_timestamps
     #else return the path
