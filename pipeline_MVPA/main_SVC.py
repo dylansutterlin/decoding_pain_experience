@@ -12,7 +12,7 @@ from sklearn.model_selection import GroupShuffleSplit, LeaveOneGroupOut, cross_v
 from sklearn.pipeline import Pipeline
 from nilearn.decoding import Decoder
 from sklearn.metrics import roc_auc_score,roc_curve, accuracy_score, confusion_matrix, classification_report
-
+#test modif for git
 
 def main_svc(save_path, data_input, subj_folders = True, sub_data = False,  which_train_data = False, test_size = 0.30, n_splits = 5, split_proced = 'GSS', grid_search = True, n_components_pca = 0.90, classes = ['N_HYPO', 'HYPO', 'N_HYPER', 'HYPER'], cov_corr = True, binary = False, binary_func = 'modulation', rand_seed = 30, verbose = True):
 
