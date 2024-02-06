@@ -1,7 +1,7 @@
 # decoding_pain_experience
 Decoding fMRI brain activity associated with pain modulation induced by verbal suggestions
 ---
-! Data and results used are for example use only
+/!\ Data and results are used as example
 ### Project definition
 
 Pain is a multi-dimensional experience involving emotional, sensory and motivational aspects. Hypnosis is one intersting psychological
