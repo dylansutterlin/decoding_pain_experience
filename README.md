@@ -93,7 +93,7 @@ The main objective of this project was to complete a decoding model having the v
 
 ## Acknowledgement
 
-Thanks to all the instructors, espicially Marie-Eve and Francois who took the time to sit down with me and precise some concepts and shed some light on many topics such as the proper workflow, debugging techniques, proper use of sklearn, nilearn modules and so on!
+Thanks to all the instructors of [BrainHackSchool](https://school.brainhackmtl.org/), espicially Marie-Eve and Francois who took the time to sit down with me and precise some concepts and shed some light on many topics such as the proper workflow, debugging techniques, proper use of sklearn, nilearn modules and so on!
 
 ## References
 
